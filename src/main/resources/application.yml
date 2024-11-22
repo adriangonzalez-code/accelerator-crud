@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: products-api
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3307/ecommerce
+    username: root
+    password: root
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+logging:
+  level:
+    com:
+      smoothiecorp:
+        services:
+          productsapi: DEBUG
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
