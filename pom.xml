@@ -103,7 +103,7 @@
                 <version>3.4.1</version>
                 <configuration>
                     <to>
-                        <image>smoothiemx/${project.artifactId}</image>
+                        <image>smoothiecorp/${project.artifactId}</image>
                     </to>
                 </configuration>
             </plugin>
