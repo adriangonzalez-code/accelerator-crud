@@ -5,60 +5,85 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import lombok.val;
-import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
-import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Enumeration;
 
 @Slf4j
 @Component
-@Order(1)
 public class RequestResponseFilter extends OncePerRequestFilter {
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        StringBuilder header = new StringBuilder();
-        long start = System.currentTimeMillis();
-        Timestamp requestTimeStamp = new Timestamp(start);
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-        header.append("request_timestamp: ").append(requestTimeStamp).append(", ");
+        long startTime = Instant.now().toEpochMilli();
+        String requestTimestamp = Instant.now().toString();
+        String method = request.getMethod();
+        String path = request.getRequestURI();
+        String queryParams = getQueryParams(request);
 
-        if (isAsyncDispatch(request)) {
-            filterChain.doFilter(request, response);
-        } else {
-            doFilterWrapped(request, response, filterChain, header);
-            long responseTimeInMillis = System.currentTimeMillis();
-            Timestamp responseTimeStamp = new Timestamp(responseTimeInMillis);
-            long responseTime = responseTimeInMillis - start;
+        // Wrap the response to capture its body
+        ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper(response);
 
-            header.append("response_time: ").append(responseTimeStamp).append(", ")
-                    .append("response_time_ms: ").append(responseTime).append("ms");
-
-            log.info(header.toString());
-        }
-    }
-
-    protected void doFilterWrapped(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain, StringBuilder headerBuilder) throws ServletException, IOException {
         try {
-            filterChain.doFilter(request, response);
+            // Continue the filter chain with the wrapped response
+            filterChain.doFilter(request, responseWrapper);
         } finally {
-            afterRequest(request, response, headerBuilder);
+            long endTime = Instant.now().toEpochMilli();
+            String responseTimestamp = Instant.now().toString();
+            long duration = endTime - startTime;
+
+            int status = responseWrapper.getStatus();
+            String messageCode = HttpStatus.valueOf(status).getReasonPhrase();
+
+            String responseBody = getResponseBody(responseWrapper);
+
+            // Log details
+            log.info("Response returned: {}", responseBody);
+            log.info(
+                    "Request completed: [Request Timestamp: {}, Response Timestamp: {}, Duration: {} ms, Path: {}, Query Params: {}, Method: {}, Http Status: {}, Message Code: {}]",
+                    requestTimestamp,
+                    responseTimestamp,
+                    duration,
+                    path,
+                    queryParams,
+                    method,
+                    status,
+                    messageCode
+            );
+
+            // Ensure the response is correctly written back to the client
+            responseWrapper.copyBodyToResponse();
         }
     }
 
-    protected void afterRequest(HttpServletRequest request, HttpServletResponse response, StringBuilder headerBuilder) {
-        logRequestHeader(request, headerBuilder);
+    private String getQueryParams(HttpServletRequest request) {
+        Enumeration<String> parameterNames = request.getParameterNames();
+        StringBuilder queryParams = new StringBuilder();
+        while (parameterNames.hasMoreElements()) {
+            String param = parameterNames.nextElement();
+            String value = request.getParameter(param);
+            queryParams.append(param).append("=").append(value).append("&");
+        }
+        if (!queryParams.isEmpty()) {
+            queryParams.deleteCharAt(queryParams.length() - 1); // Remove trailing "&"
+        }
+        return queryParams.toString();
     }
 
-    private void logRequestHeader(HttpServletRequest request, StringBuilder headerBuilder) {
-        headerBuilder.append("operation: ").append(request.getMethod()).append(", ")
-                .append("path: ").append(request.getRequestURI()).append(", ");
-        val queryString = request.getQueryString();
-        if (queryString != null) {
-            headerBuilder.append("params: ").append(queryString).append(", ");
+    private String getResponseBody(ContentCachingResponseWrapper responseWrapper) {
+        try {
+            byte[] content = responseWrapper.getContentAsByteArray();
+            return new String(content, responseWrapper.getCharacterEncoding());
+        } catch (Exception e) {
+            log.error("Error reading response body", e);
+            return "Error reading response body";
         }
     }
 }
